@@ -1,0 +1,89 @@
+{
+  "name": "@nexp/dfs-code",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NexP data graph application.",
+  "type": "module",
+  "exports": {
+    "./env": {
+      "import": "./src/env/index.ts"
+    },
+    "./providers": {
+      "import": "./src/providers/index.ts"
+    },
+    "./packages": {
+      "import": "./src/packages.ts"
+    }
+  },
+  "scripts": {
+    "check": "tsc -b tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "build": "swc src -d dist/esm",
+    "preview": "vite preview",
+    "dev": "node --loader @swc-node/register/esm --no-warnings vite-boot.ts",
+    "commit": "git add . && { git commit -m \"$COMMIT_MSG\"; } || true",
+    "format": "prettier --write . && eslint src/** --fix",
+    "lint": "prettier --check . && eslint src/**",
+    "pull": "git pull",
+    "push": "git push",
+    "push-tags": "git push --tags",
+    "test": "jest --silent"
+  },
+  "dependencies": {
+    "@codingame/monaco-vscode-api": "15.0.3",
+    "@codingame/monaco-vscode-base-service-override": "15.0.3",
+    "@codingame/monaco-vscode-configuration-service-override": "15.0.3",
+    "@codingame/monaco-vscode-cpp-default-extension": "15.0.3",
+    "@codingame/monaco-vscode-debug-service-override": "15.0.3",
+    "@codingame/monaco-vscode-editor-api": "15.0.3",
+    "@codingame/monaco-vscode-editor-service-override": "15.0.3",
+    "@codingame/monaco-vscode-environment-service-override": "15.0.3",
+    "@codingame/monaco-vscode-explorer-service-override": "15.0.3",
+    "@codingame/monaco-vscode-files-service-override": "15.0.3",
+    "@codingame/monaco-vscode-groovy-default-extension": "15.0.3",
+    "@codingame/monaco-vscode-java-default-extension": "15.0.3",
+    "@codingame/monaco-vscode-javascript-default-extension": "15.0.3",
+    "@codingame/monaco-vscode-json-default-extension": "15.0.3",
+    "@codingame/monaco-vscode-keybindings-service-override": "15.0.3",
+    "@codingame/monaco-vscode-language-pack-zh-hans": "15.0.3",
+    "@codingame/monaco-vscode-languages-service-override": "15.0.3",
+    "@codingame/monaco-vscode-lifecycle-service-override": "15.0.3",
+    "@codingame/monaco-vscode-localization-service-override": "15.0.3",
+    "@codingame/monaco-vscode-preferences-service-override": "15.0.3",
+    "@codingame/monaco-vscode-python-default-extension": "15.0.3",
+    "@codingame/monaco-vscode-remote-agent-service-override": "15.0.3",
+    "@codingame/monaco-vscode-search-result-default-extension": "15.0.3",
+    "@codingame/monaco-vscode-search-service-override": "15.0.3",
+    "@codingame/monaco-vscode-secret-storage-service-override": "15.0.3",
+    "@codingame/monaco-vscode-standalone-json-language-features": "15.0.3",
+    "@codingame/monaco-vscode-standalone-languages": "15.0.3",
+    "@codingame/monaco-vscode-standalone-typescript-language-features": "15.0.3",
+    "@codingame/monaco-vscode-storage-service-override": "15.0.3",
+    "@codingame/monaco-vscode-testing-service-override": "15.0.3",
+    "@codingame/monaco-vscode-textmate-service-override": "15.0.3",
+    "@codingame/monaco-vscode-theme-defaults-default-extension": "15.0.3",
+    "@codingame/monaco-vscode-theme-service-override": "15.0.3",
+    "@codingame/monaco-vscode-typescript-basics-default-extension": "15.0.3",
+    "@codingame/monaco-vscode-typescript-language-features-default-extension": "15.0.3",
+    "@codingame/monaco-vscode-views-service-override": "15.0.3",
+    "@codingame/monaco-vscode-workbench-service-override": "15.0.3",
+    "@nexp/common": "workspace:*",
+    "@nexp/front-lib": "workspace:*",
+    "@vscode/vscode-languagedetection": "^1.0.22",
+    "marked": "~14.0.0",
+    "monaco-languageclient": "~9.5.0",
+    "vscode": "npm:@codingame/monaco-vscode-extension-api@15.0.3",
+    "vscode-languageclient": "~9.0.1",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.2.0",
+    "vscode-uri": "~3.1.0"
+  },
+  "peerDependencies": {
+    "@emotion/react": "^11.11.4",
+    "@emotion/styled": "^11.11.5",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}

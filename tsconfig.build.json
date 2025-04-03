@@ -1,0 +1,25 @@
+{
+  "extends": "../common/tsconfig/tsconfig.front.json",
+  "compilerOptions": {
+    "rootDir": "./",
+    "baseUrl": "src",
+    "outDir": "build",
+    "composite": true
+  },
+  "include": [
+    "src",
+  ],
+  "exclude": [
+    "dist",
+    "build",
+    "node_modules"
+  ],
+  "references": [
+    {
+      "path": "../common/tsconfig.json"
+    },
+    {
+      "path": "../front-lib/tsconfig.build.json"
+    }
+  ]
+}
