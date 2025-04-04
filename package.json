@@ -7,12 +7,6 @@
   "exports": {
     "./env": {
       "import": "./src/env/index.ts"
-    },
-    "./providers": {
-      "import": "./src/providers/index.ts"
-    },
-    "./packages": {
-      "import": "./src/packages.ts"
     }
   },
   "scripts": {
@@ -78,6 +72,7 @@
     "@nexp/common": "workspace:*",
     "@nexp/front-lib": "workspace:*",
     "@vscode/vscode-languagedetection": "^1.0.22",
+    "events": "^3.3.0",
     "marked": "~14.0.0",
     "monaco-languageclient": "~9.5.0",
     "vscode": "npm:@codingame/monaco-vscode-extension-api@15.0.3",

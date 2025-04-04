@@ -5,22 +5,23 @@
 
 import { BrowserMessageReader, BrowserMessageWriter } from 'vscode-languageserver-protocol/browser.js'
 import type { LanguageClientOptions, MessageTransports } from 'vscode-languageclient/browser.js'
-import { CloseAction, ErrorAction, State } from 'vscode-languageclient/browser.js'
+import { CloseAction, ErrorAction } from 'vscode-languageclient/browser.js'
 import type { WorkerConfigOptionsDirect, WorkerConfigOptionsParams } from 'monaco-languageclient'
 import { MonacoLanguageClient } from 'monaco-languageclient'
 import { createUrl } from 'monaco-languageclient/tools'
 import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 import type { Logger } from '@nexp/front-lib/platform'
-import type {
-  CodeEnvironment,
-  ConnectionConfig,
-  LanguageClientConfig,
-  LanguageClientError,
-  LanguageClientRestartOptions,
-} from './types'
+import type { CodeEnvironment, ConnectionConfig, LanguageClientError, LanguageClientRestartOptions } from './types'
 import { ManagedServiceImpl } from './service'
 
-export class LanguageClient extends ManagedServiceImpl {
+export interface LanguageClientConfig {
+  name?: string
+  connection: ConnectionConfig
+  clientOptions: LanguageClientOptions
+  restartOptions?: LanguageClientRestartOptions
+}
+
+export class LanguageClient extends ManagedServiceImpl<LanguageClient> {
   private _client?: MonacoLanguageClient
   private _worker?: Worker
   private _port?: MessagePort
@@ -32,11 +33,8 @@ export class LanguageClient extends ManagedServiceImpl {
   public readonly name: string
   public readonly log: Logger
 
-  constructor(
-    public readonly env: CodeEnvironment,
-    config: LanguageClientConfig,
-  ) {
-    super()
+  constructor(env: CodeEnvironment, id: string, config: LanguageClientConfig) {
+    super(env, id)
     this.name = config.name ?? 'Language Client'
     this.log = env.context.log
     this._clientOptions = config.clientOptions
@@ -54,43 +52,6 @@ export class LanguageClient extends ManagedServiceImpl {
 
   public get isRunning(): boolean {
     return Boolean(this._client?.isRunning())
-  }
-
-  protected async doStartup(): Promise<void> {
-    if (this._client?.isRunning() ?? false) {
-      this.log.i('monaco-languageclient already running when start!')
-      return Promise.resolve()
-    }
-    return new Promise((resolve, reject) => {
-      const conConfig = this._config
-      const conOptions = conConfig.options
-
-      if (
-        conOptions.$type === 'WebSocketDirect' ||
-        conOptions.$type === 'WebSocketParams' ||
-        conOptions.$type === 'WebSocketUrl'
-      ) {
-        const webSocket =
-          conOptions.$type === 'WebSocketDirect' ? conOptions.webSocket : new WebSocket(createUrl(conOptions))
-        this._initWebSocket(webSocket, resolve, reject).catch(e => this.log.e('Error initializing websocket', e))
-      } else {
-        // init of worker and start of languageclient can be handled directly, because worker available already
-        this._initWorker(conOptions, resolve, reject).catch(e => this.log.e('Error initializing websocket', e))
-      }
-    })
-  }
-
-  /**
-   * Restart the languageclient with options to control worker handling
-   *
-   * @param updatedWorker Set a new worker here that should be used. keepWorker has no effect then, as we want to dispose of the prior workers
-   * @param disposeWorker Set to false if worker should not be disposed
-   */
-  public async restart(updatedWorker?: Worker, disposeWorker = true): Promise<void> {
-    await this.stop(disposeWorker)
-    this._worker = updatedWorker
-    this.log.i('Re-Starting monaco-languageclient')
-    return this.start()
   }
 
   private async _initWebSocket(webSocket: WebSocket, resolve: () => void, reject: (reason?: unknown) => void) {
@@ -201,9 +162,6 @@ export class LanguageClient extends ManagedServiceImpl {
       if (isWebSocket && conOptions.stopOptions !== undefined) {
         const stopOptions = conOptions.stopOptions
         stopOptions.onCall(this.client)
-        if (stopOptions.reportStatus !== undefined) {
-          this.log.i(this._status().join('\n'))
-        }
       }
     })
 
@@ -212,9 +170,6 @@ export class LanguageClient extends ManagedServiceImpl {
       if (isWebSocket && conOptions.startOptions !== undefined) {
         const startOptions = conOptions.startOptions
         startOptions.onCall(this.client)
-        if (startOptions.reportStatus !== undefined) {
-          this.log.i(this._status().join('\n'))
-        }
       }
     } catch (e: unknown) {
       reject({
@@ -227,39 +182,67 @@ export class LanguageClient extends ManagedServiceImpl {
     starting = false
   }
 
+  /**
+   * Restart the languageclient with options to control worker handling
+   *
+   * @param updatedWorker Set a new worker here that should be used. keepWorker has no effect then, as we want to dispose of the prior workers
+   * @param disposeWorker Set to false if worker should not be disposed
+   */
+  private async _restart(updatedWorker?: Worker, disposeWorker = true): Promise<void> {
+    await this.stop(disposeWorker)
+    this._worker = updatedWorker
+    this.log.i('Re-Starting monaco-languageclient')
+    return this.start()
+  }
+
   private _configRestart(messageTransports: MessageTransports, restartOptions?: LanguageClientRestartOptions) {
     if (!restartOptions) return
     let retry = 0
-
     const readerOnError = messageTransports.reader.onError(() => restartLC)
     const readerOnClose = messageTransports.reader.onClose(() => restartLC)
-
     const restartLC = async () => {
-      if (this.isRunning) {
-        try {
-          readerOnError.dispose()
-          readerOnClose.dispose()
-
-          await this.restart(this._worker, restartOptions.keepWorker)
-        } finally {
-          retry++
-          if (retry > restartOptions.retries && !this.isRunning) {
-            this.log.i('Disabling Language Client. Failed to start client after 5 retries')
-          } else {
-            setTimeout(() => {
-              this.restart(this._worker, restartOptions.keepWorker).catch(e =>
-                this.log.e('Error restarting language client', e),
-              )
-            }, restartOptions.timeout)
-          }
+      if (!this.isRunning) return
+      try {
+        readerOnError.dispose()
+        readerOnClose.dispose()
+        await this._restart(this._worker, restartOptions.keepWorker)
+      } finally {
+        retry++
+        if (retry > restartOptions.retries && !this.isRunning) {
+          this.log.i('Disabling Language Client. Failed to start client after 5 retries')
+        } else {
+          setTimeout(() => {
+            this._restart(this._worker, restartOptions.keepWorker).catch(e =>
+              this.log.e('Error restarting language client', e),
+            )
+          }, restartOptions.timeout)
         }
       }
     }
   }
 
-  protected disposeWorker() {
-    this._worker?.terminate()
-    this._worker = undefined
+  protected async doStartup(): Promise<void> {
+    if (this._client?.isRunning() ?? false) {
+      this.log.i('monaco-languageclient already running when start!')
+      return Promise.resolve()
+    }
+    return new Promise((resolve, reject) => {
+      const conConfig = this._config
+      const conOptions = conConfig.options
+
+      if (
+        conOptions.$type === 'WebSocketDirect' ||
+        conOptions.$type === 'WebSocketParams' ||
+        conOptions.$type === 'WebSocketUrl'
+      ) {
+        const webSocket =
+          conOptions.$type === 'WebSocketDirect' ? conOptions.webSocket : new WebSocket(createUrl(conOptions))
+        this._initWebSocket(webSocket, resolve, reject).catch(e => this.log.e('Error initializing websocket', e))
+      } else {
+        // init of worker and start of languageclient can be handled directly, because worker available already
+        this._initWorker(conOptions, resolve, reject).catch(e => this.log.e('Error initializing websocket', e))
+      }
+    })
   }
 
   public async doShutdown(disposeWorker = true): Promise<void> {
@@ -275,15 +258,10 @@ export class LanguageClient extends ManagedServiceImpl {
       } satisfies LanguageClientError as any
     } finally {
       // always terminate the worker if desired
-      if (disposeWorker) this.disposeWorker()
+      if (disposeWorker) {
+        this._worker?.terminate()
+        this._worker = undefined
+      }
     }
-  }
-
-  private _status() {
-    const status: string[] = []
-    const client = this.client
-    status.push('status:')
-    status.push(`LanguageClient: ${client?.name ?? 'Language Client'} is in a '${State[client?.state ?? 1]}' state`)
-    return status
   }
 }

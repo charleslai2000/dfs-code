@@ -14,8 +14,48 @@ import { ConsoleLogger } from 'monaco-languageclient/tools'
 import type { RegisterExtensionResult, IExtensionManifest } from '@codingame/monaco-vscode-api/extensions'
 import { ExtensionHostKind, getExtensionManifests, registerExtension } from '@codingame/monaco-vscode-api/extensions'
 import type { UiContext, WorkerProgress } from '@nexp/front-lib/platform'
-import type { CodeEnvironment, CodeOptions, ExtensionConfig, LanguageClientConfig, WorkerLoader } from './types'
+import type { LanguageClientOptions } from 'vscode-languageclient/browser'
+import type {
+  CodeEditor,
+  CodeEditorOptions,
+  CodeEnvironment,
+  CodeOptions,
+  ComputeLanguageKind,
+  ExtensionConfig,
+  WorkerLoader,
+} from './types'
+import type { LanguageClientConfig } from './lsp-client'
 import { LanguageClient } from './lsp-client'
+import { CodeEditorImpl } from './editor'
+
+const LanguagePaths: Record<ComputeLanguageKind, string> = {
+  JSON: 'json',
+  PYTHON: 'pyright',
+  C: 'c',
+  CPP: 'cpp',
+  GOLANG: 'go',
+  JAVA: 'java',
+  JAVASCRIPT: 'ts',
+  RUST: 'rust',
+  WASM: 'wasm',
+}
+
+const LanguageKinds: Record<string, ComputeLanguageKind> = {
+  '.json': 'JSON',
+  '.py': 'PYTHON',
+  '.c': 'C',
+  '.cpp': 'CPP',
+  '.go': 'GOLANG',
+  '.java': 'JAVA',
+  '.ts': 'JAVASCRIPT',
+  '.js': 'JAVASCRIPT',
+  '.tsx': 'JAVASCRIPT',
+  '.jsx': 'JAVASCRIPT',
+  '.python': 'PYTHON',
+  '.golang': 'GOLANG',
+  '.rs': 'RUST',
+  '>wasm': 'WASM',
+}
 
 class CodeEnvironmentImpl implements CodeEnvironment {
   private _config: VscodeApiConfig
@@ -213,11 +253,55 @@ class CodeEnvironmentImpl implements CodeEnvironment {
     }
     await Promise.all(allPromises)
   }
+  private async _prepareClientConfig(
+    kind: ComputeLanguageKind | string | undefined,
+    options?: Partial<LanguageClientOptions>,
+  ) {
+    let lang: ComputeLanguageKind
+    if (!kind) lang = 'JSON'
+    else if (kind in LanguagePaths) lang = kind as ComputeLanguageKind
+    else lang = LanguageKinds[kind] ?? ('JSON' as ComputeLanguageKind)
+    const config: LanguageClientConfig = {
+      clientOptions: { ...options },
+      connection: {
+        options: {
+          $type: 'WebSocketUrl',
+          url: `${this.context.host.serviceEndpoints.language}/${LanguagePaths[lang]}`,
+          startOptions: {
+            onCall: () => {
+              console.log('Connected to socket.')
+            },
+            reportStatus: true,
+          },
+          stopOptions: {
+            onCall: () => {
+              console.log('Disconnected from socket.')
+            },
+            reportStatus: true,
+          },
+        },
+      },
+    }
+    switch (lang) {
+      case 'JSON':
+        await import('@codingame/monaco-vscode-json-default-extension')
+        config.clientOptions.documentSelector = config.clientOptions.documentSelector ?? ['json']
+        break
+      case 'PYTHON':
+        await import('@codingame/monaco-vscode-python-default-extension')
+        config.clientOptions.documentSelector = config.clientOptions.documentSelector ?? ['python', 'py']
+        break
+      default:
+      // TODO: handle more languages
+    }
+    return config
+  }
 
-  public async startLanguageClient(id: string, config: LanguageClientConfig) {
+  public async startLanguageClient(id: string, kind?: ComputeLanguageKind | string, options?: LanguageClientOptions) {
     let client = this._languageClients.get(id)
     if (!client) {
-      client = new LanguageClient(this, config)
+      const config = await this._prepareClientConfig(kind, options)
+      client = new LanguageClient(this, id, config)
       this._languageClients.set(id, client)
     }
     await client.start()
@@ -228,6 +312,25 @@ class CodeEnvironmentImpl implements CodeEnvironment {
     if (client) {
       await client.stop()
       this._languageClients.delete(id)
+    }
+  }
+
+  private _editors = new Map<string, CodeEditor>()
+
+  public async createEditor(id: string, container: HTMLElement, opt: CodeEditorOptions) {
+    let editor = this._editors.get(id)
+    if (!editor) {
+      editor = new CodeEditorImpl(this, id, opt)
+    }
+    await editor.start(container)
+    return editor
+  }
+
+  public async disposeEditor(id: string) {
+    const editor = this._editors.get(id)
+    if (editor) {
+      await editor.stop()
+      this._editors.delete(id)
     }
   }
 
@@ -279,7 +382,8 @@ class CodeEnvironmentImpl implements CodeEnvironment {
     await this.addServices(() => import('@codingame/monaco-vscode-debug-service-override'))
     await this.addServices(() => import('@codingame/monaco-vscode-terminal-service-override'))
     await this.addServices(() => import('@codingame/monaco-vscode-search-service-override'))
-    await this.addServices(() => import('@codingame/monaco-vscode-scm-service-override'))
+    // TODO: this depends chat-service
+    // await this.addServices(() => import('@codingame/monaco-vscode-scm-service-override'))
     // task management
     await this.addServices(() => import('@codingame/monaco-vscode-task-service-override'))
     await this.addServices(() => import('@codingame/monaco-vscode-outline-service-override'))
@@ -345,7 +449,7 @@ class CodeEnvironmentImpl implements CodeEnvironment {
 
   public async dispose() {
     // stop all language clients
-    await Promise.allSettled(Array.from(this._languageClients.values()).map(lsc => lsc.stop()))
+    await Promise.allSettled(Array.from(this._languageClients.values()).map(lsc => lsc.stop(true)))
     // stop all extensions
     await Promise.allSettled(Array.from(this._installedExtensions.values()).map(k => k.dispose()))
     this._extensionsStore?.dispose()
