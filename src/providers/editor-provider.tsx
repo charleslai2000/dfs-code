@@ -3,7 +3,7 @@ import { ErrorBoundary, SuspendableValue } from '@nexp/front-lib/provider'
 import { Typography } from '@mui/material'
 import type { IStandaloneEditorConstructionOptions } from '@codingame/monaco-vscode-api/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 import { LoaderPanel, SpinLoader } from '@nexp/front-lib/components'
-import type { CodeEnvironment, EditorEnvironment } from '../env'
+import type { CodeContent, CodeEnvironment, EditorEnvironment } from '../env'
 import { EditorContext } from '../env'
 
 const FCInnerProvider: React.FC<React.PropsWithChildren<{ env: SuspendableValue<EditorEnvironment> }>> = props => {
@@ -21,6 +21,7 @@ const FCInnerProvider: React.FC<React.PropsWithChildren<{ env: SuspendableValue<
 interface StandardEditorProviderProps {
   env: CodeEnvironment
   id: string
+  content?: CodeContent
   domReadOnly?: boolean
   readOnly?: boolean
   overrideAutomaticLayout?: boolean
@@ -40,8 +41,8 @@ export const CodeEditorProvider: React.FC<React.PropsWithChildren<StandardEditor
       // for react strict model
       if (env.closed) return null
       // import and create editor environment
-      const { createEditorEnvironment: createStandardEditorEnv } = await import('../env/editor-env')
-      const instance: EditorEnvironment = createStandardEditorEnv(codeEnv, id, {
+      const { createEditorEnvironment } = await import('../env/editor-env')
+      const instance: EditorEnvironment = createEditorEnvironment(codeEnv, id, {
         ...rest,
       })
       return instance

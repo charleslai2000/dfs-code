@@ -72,6 +72,7 @@ export const CodeContextProvider: React.FC<React.PropsWithChildren<CodeContextPr
       const { createEnvironment } = await import('../env/code-env')
       setProgress({ progress: 50, message: '完成核心库加载' })
       await import('@codingame/monaco-vscode-json-default-extension')
+      await import('@codingame/monaco-vscode-python-default-extension')
       let lscConfigs: Record<string, LanguageClientConfig> | undefined = undefined
       if (props.languageClients) {
         lscConfigs = {}
@@ -110,6 +111,9 @@ export const CodeContextProvider: React.FC<React.PropsWithChildren<CodeContextPr
       instance = createEnvironment(
         context,
         {
+          viewsConfig: {
+            viewServiceType: 'ViewsService',
+          },
           userConfiguration: {
             json: JSON.stringify({
               'workbench.colorTheme': 'Default Dark Modern',
