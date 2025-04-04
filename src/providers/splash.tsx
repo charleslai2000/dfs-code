@@ -1,5 +1,5 @@
 import { Box, LinearProgress, styled, Typography, useTheme } from '@mui/material'
-import type { WorkingProgress } from '@nexp/front-lib/provider'
+import type { WorkerProgress } from '@nexp/front-lib/platform'
 import React from 'react'
 
 const FCBackground = styled(Box)`
@@ -24,7 +24,7 @@ const FCProgressContainer = styled(Box)`
   flex-direction: column;
 `
 
-export const CodeLoadingSplash: React.FC<{ progress: WorkingProgress }> = props => {
+export const CodeLoadingSplash: React.FC<{ progress: WorkerProgress }> = props => {
   const { progress } = props
   const { palette } = useTheme()
   return (

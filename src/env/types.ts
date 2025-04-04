@@ -4,7 +4,7 @@ import type { IReference } from '@codingame/monaco-vscode-api/vscode/vs/base/com
 import type { ITextModel } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/model'
 import type { MessageTransports, LanguageClientOptions } from 'vscode-languageclient/browser.js'
 import type { ConnectionConfigOptions } from 'monaco-languageclient'
-import type { UiContext } from '@nexp/front-lib/platform'
+import type { ContextProperty, UiContext, WorkerProgress } from '@nexp/front-lib/platform'
 import type {
   IStandaloneCodeEditor,
   IStandaloneEditorConstructionOptions,
@@ -12,7 +12,18 @@ import type {
 import type { IExtensionManifest } from '@codingame/monaco-vscode-api/extensions'
 import type { Logger } from 'monaco-languageclient/tools'
 
+export interface CodeEnvironmentProp extends ContextProperty {
+  name: 'service.code'
+  environment: CodeEnvironment
+}
+
 export type WorkerLoader = () => Worker
+
+export interface ManagedService {
+  readonly isRunning: boolean
+  start(): Promise<void>
+  stop(): Promise<void>
+}
 
 export interface ExtensionConfig {
   config: IExtensionManifest
@@ -43,13 +54,13 @@ export interface LanguageClientError {
 
 export interface CodeOptions {
   logLevel?: number
-  // Language clients using.
-  languageClients?: Record<string, LanguageClientConfig>
 }
 
 export interface CodeEnvironment {
   context: UiContext
-  init(progress?: (progress: number, message?: string, error?: string) => void): Promise<void>
+  init(progress?: (progress: WorkerProgress) => void): Promise<void>
+  startLanguageClient(id: string, config: LanguageClientConfig): Promise<void>
+  stopLanguageClient(id: string): Promise<void>
   dispose(): Promise<void>
 }
 

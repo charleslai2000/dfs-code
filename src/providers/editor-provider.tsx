@@ -49,6 +49,7 @@ export const CodeEditorProvider: React.FC<React.PropsWithChildren<StandardEditor
     })
     setEnv(env)
     return () => {
+      setEnv(undefined)
       env.close().catch(e => context.log.e('Error when disposing editor environment:%s.', e))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

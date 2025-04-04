@@ -13,8 +13,8 @@ import type { Logger } from 'monaco-languageclient/tools'
 import { ConsoleLogger } from 'monaco-languageclient/tools'
 import type { RegisterExtensionResult, IExtensionManifest } from '@codingame/monaco-vscode-api/extensions'
 import { ExtensionHostKind, getExtensionManifests, registerExtension } from '@codingame/monaco-vscode-api/extensions'
-import type { UiContext } from '@nexp/front-lib/platform'
-import type { CodeEnvironment, CodeOptions, ExtensionConfig, WorkerLoader } from './types'
+import type { UiContext, WorkerProgress } from '@nexp/front-lib/platform'
+import type { CodeEnvironment, CodeOptions, ExtensionConfig, LanguageClientConfig, WorkerLoader } from './types'
 import { LanguageClient } from './lsp-client'
 
 class CodeEnvironmentImpl implements CodeEnvironment {
@@ -26,6 +26,7 @@ class CodeEnvironmentImpl implements CodeEnvironment {
   private _installedExtensions = new Map<string, RegisterExtensionResult>()
   private _extensionsStore?: DisposableStore = new DisposableStore()
 
+  // all started language clients indexed by unique id.
   private _languageClients = new Map<string, LanguageClient>()
 
   public readonly logger: Logger
@@ -37,12 +38,6 @@ class CodeEnvironmentImpl implements CodeEnvironment {
   ) {
     this._config = config
     this._services = config.serviceOverrides ?? {}
-    if (opt.languageClients) {
-      Object.entries(opt.languageClients).forEach(([name, config]) => {
-        const client = new LanguageClient(this, config)
-        this._languageClients.set(name, client)
-      })
-    }
     this.logger = new ConsoleLogger(opt.logLevel ?? LogLevel.Info)
   }
 
@@ -219,13 +214,30 @@ class CodeEnvironmentImpl implements CodeEnvironment {
     await Promise.all(allPromises)
   }
 
+  public async startLanguageClient(id: string, config: LanguageClientConfig) {
+    let client = this._languageClients.get(id)
+    if (!client) {
+      client = new LanguageClient(this, config)
+      this._languageClients.set(id, client)
+    }
+    await client.start()
+  }
+
+  public async stopLanguageClient(id: string) {
+    const client = this._languageClients.get(id)
+    if (client) {
+      await client.stop()
+      this._languageClients.delete(id)
+    }
+  }
+
   /* eslint-enabled @typescript-eslint/naming-convention */
-  public async init(progress?: (progress: number, message?: string, error?: string) => void) {
+  public async init(progress?: (progress: WorkerProgress) => void) {
     // use get worker as a signal that the env is initialized
     if (window.MonacoEnvironment?.getWorker) return
 
     // await this._loadLocales()
-    progress?.(60, '本地化加载完成')
+    progress?.({ progress: 0.1, message: '本地化加载完成' })
 
     this._addWorker(
       'TextEditorWorker',
@@ -287,7 +299,7 @@ class CodeEnvironmentImpl implements CodeEnvironment {
       await this.addServices(() => import('@codingame/monaco-vscode-editor-service-override'))
     }
     this._config.serviceOverrides = this._services
-    progress?.(70, '核心服务加载完成')
+    progress?.({ progress: 0.4, message: '服务加载完成' })
 
     if (this._config.workspaceConfig === undefined) {
       this._config.workspaceConfig = {
@@ -313,17 +325,18 @@ class CodeEnvironmentImpl implements CodeEnvironment {
       logger: this.logger,
     })
     if (!success) throw new Error('Initialize services failed.')
-    progress?.(80, '服务初始化完成')
+    progress?.({ progress: 0.2, message: '服务加载完成' })
+    // progress?.(80, '服务初始化完成')
 
     // initialize extensions.
     await this._initExtensions()
 
-    progress?.(95, '插件初始化完成')
+    progress?.({ progress: 0.3, message: '插件初始化完成' })
 
-    // start language client.
-    await Promise.allSettled(Array.from(this._languageClients.values()).map(lsc => lsc.start()))
+    // // start language client.
+    // await Promise.allSettled(Array.from(this._languageClients.values()).map(lsc => lsc.start()))
 
-    progress?.(95, '语言服务加载完成')
+    // progress?.(95, '语言服务加载完成')
 
     window.MonacoEnvironment = {
       getWorker: (_, label) => this._getWorker(label),
@@ -332,7 +345,7 @@ class CodeEnvironmentImpl implements CodeEnvironment {
 
   public async dispose() {
     // stop all language clients
-    await Promise.allSettled(Array.from(this._languageClients.values()).map(lsc => lsc.dispose()))
+    await Promise.allSettled(Array.from(this._languageClients.values()).map(lsc => lsc.stop()))
     // stop all extensions
     await Promise.allSettled(Array.from(this._installedExtensions.values()).map(k => k.dispose()))
     this._extensionsStore?.dispose()

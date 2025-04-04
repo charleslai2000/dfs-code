@@ -18,8 +18,9 @@ import type {
   LanguageClientError,
   LanguageClientRestartOptions,
 } from './types'
+import { ManagedServiceImpl } from './service'
 
-export class LanguageClient {
+export class LanguageClient extends ManagedServiceImpl {
   private _client?: MonacoLanguageClient
   private _worker?: Worker
   private _port?: MessagePort
@@ -35,6 +36,7 @@ export class LanguageClient {
     public readonly env: CodeEnvironment,
     config: LanguageClientConfig,
   ) {
+    super()
     this.name = config.name ?? 'Language Client'
     this.log = env.context.log
     this._clientOptions = config.clientOptions
@@ -54,7 +56,7 @@ export class LanguageClient {
     return Boolean(this._client?.isRunning())
   }
 
-  public async start(): Promise<void> {
+  protected async doStartup(): Promise<void> {
     if (this._client?.isRunning() ?? false) {
       this.log.i('monaco-languageclient already running when start!')
       return Promise.resolve()
@@ -85,7 +87,7 @@ export class LanguageClient {
    * @param disposeWorker Set to false if worker should not be disposed
    */
   public async restart(updatedWorker?: Worker, disposeWorker = true): Promise<void> {
-    await this.dispose(disposeWorker)
+    await this.stop(disposeWorker)
     this._worker = updatedWorker
     this.log.i('Re-Starting monaco-languageclient')
     return this.start()
@@ -260,7 +262,7 @@ export class LanguageClient {
     this._worker = undefined
   }
 
-  public async dispose(disposeWorker = true): Promise<void> {
+  public async doShutdown(disposeWorker = true): Promise<void> {
     if (!this.isRunning) return
     try {
       await this._client?.dispose()
