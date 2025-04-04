@@ -224,7 +224,7 @@ class CodeEnvironmentImpl implements CodeEnvironment {
     // use get worker as a signal that the env is initialized
     if (window.MonacoEnvironment?.getWorker) return
 
-    await this._loadLocales()
+    // await this._loadLocales()
     progress?.(60, '本地化加载完成')
 
     this._addWorker(
@@ -239,11 +239,38 @@ class CodeEnvironmentImpl implements CodeEnvironment {
         }),
     )
 
+    // the following services are included by default
+    // await this.addServices(() => import('@codingame/monaco-vscode-host-service-override'))
+    // await this.addServices(() => import('@codingame/monaco-vscode-quickaccess-service-override'))
+    // await this.addServices(() => import('@codingame/monaco-vscode-extensions-service-override'))
     await this.addServices(() => import('@codingame/monaco-vscode-configuration-service-override'))
+    // Enable language support and trigger onLanguage events
     await this.addServices(() => import('@codingame/monaco-vscode-languages-service-override'))
     await this.addServices(() => import('@codingame/monaco-vscode-textmate-service-override'))
     await this.addServices(() => import('@codingame/monaco-vscode-theme-service-override'))
     await this.addServices(() => import('@codingame/monaco-vscode-keybindings-service-override'))
+    await this.addServices(() => import('@codingame/monaco-vscode-files-service-override'))
+    await this.addServices(() => import('@codingame/monaco-vscode-storage-service-override'))
+    await this.addServices(() => import('@codingame/monaco-vscode-lifecycle-service-override'))
+    // enables vscode notifications you usually find in the bottom right corner
+    // @codingame/monaco-vscode-notifications-service-override
+    await this.addServices(() => import('@codingame/monaco-vscode-dialogs-service-override'))
+    // creates and takes care of model references.
+    await this.addServices(() => import('@codingame/monaco-vscode-model-service-override'))
+    await this.addServices(() => import('@codingame/monaco-vscode-preferences-service-override'))
+
+    await this.addServices(() => import('@codingame/monaco-vscode-remote-agent-service-override'))
+    // await this.addServices(() => import('@codingame/monaco-vscode-chat-service-override'))
+    await this.addServices(() => import('@codingame/monaco-vscode-notebook-service-override'))
+
+    // when views and workbench services are used:
+    await this.addServices(() => import('@codingame/monaco-vscode-debug-service-override'))
+    await this.addServices(() => import('@codingame/monaco-vscode-terminal-service-override'))
+    await this.addServices(() => import('@codingame/monaco-vscode-search-service-override'))
+    await this.addServices(() => import('@codingame/monaco-vscode-scm-service-override'))
+    // task management
+    await this.addServices(() => import('@codingame/monaco-vscode-task-service-override'))
+    await this.addServices(() => import('@codingame/monaco-vscode-outline-service-override'))
 
     this.context.log.i('4 services loaded.')
 
