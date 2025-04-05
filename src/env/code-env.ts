@@ -1,20 +1,29 @@
 import * as vscode from 'vscode'
+import { registerExtension, ExtensionHostKind, getExtensionManifests } from '@codingame/monaco-vscode-api/extensions'
 // eslint-disable-next-line import/order
-import type * as monaco from '@codingame/monaco-vscode-editor-api'
+import * as monaco from '@codingame/monaco-vscode-editor-api'
 
 import type { IEditorOptions } from '@codingame/monaco-vscode-api'
-import { LogLevel } from '@codingame/monaco-vscode-api'
+import { getService, LogLevel } from '@codingame/monaco-vscode-api'
 import type { VscodeApiConfig } from 'monaco-languageclient/vscode/services'
 import { initServices, mergeServices } from 'monaco-languageclient/vscode/services'
 import type { IReference } from '@codingame/monaco-vscode-api/monaco'
-import { DisposableStore } from '@codingame/monaco-vscode-api/monaco'
-import type { ICodeEditor } from '@codingame/monaco-vscode-api/vscode/vs/editor/browser/editorBrowser'
+import { DisposableStore, setUnexpectedErrorHandler } from '@codingame/monaco-vscode-api/monaco'
 import type { Logger } from 'monaco-languageclient/tools'
 import { ConsoleLogger } from 'monaco-languageclient/tools'
-import type { RegisterExtensionResult, IExtensionManifest } from '@codingame/monaco-vscode-api/extensions'
-import { ExtensionHostKind, getExtensionManifests, registerExtension } from '@codingame/monaco-vscode-api/extensions'
+import type {
+  RegisterExtensionResult,
+  IExtensionManifest,
+  RegisterExtensionParams,
+  RegisterLocalProcessExtensionResult,
+} from '@codingame/monaco-vscode-api/extensions'
 import type { UiContext, WorkerProgress } from '@nexp/front-lib/platform'
 import type { LanguageClientOptions } from 'vscode-languageclient/browser'
+import { type IResolvedTextEditorModel } from '@codingame/monaco-vscode-views-service-override'
+import type { ICodeEditor } from '@codingame/monaco-vscode-api/vscode/vs/editor/browser/editorBrowser'
+import type { ServiceIdentifier } from '@codingame/monaco-vscode-api/vscode/vs/platform/instantiation/common/instantiation'
+import type { IStoredWorkspace } from '@codingame/monaco-vscode-configuration-service-override'
+import { TerminalBackend } from '../features/terminal'
 import type {
   CodeEditor,
   CodeEditorOptions,
@@ -27,7 +36,9 @@ import type {
 import type { LanguageClientConfig } from './lsp-client'
 import { LanguageClient } from './lsp-client'
 import { CodeEditorImpl } from './editor'
+import type { AllServiceNames, ParametersOf, ServiceExport, ServiceNames } from './service-loaders'
 import {
+  loadBannerService,
   loadConfigurationService,
   loadDebugService,
   loadDialogService,
@@ -38,6 +49,7 @@ import {
   loadKeybindingsService,
   loadLanguagesService,
   loadLifecycleService,
+  loadLocalizationService,
   loadLogService,
   loadModelService,
   loadNotebookService,
@@ -46,16 +58,17 @@ import {
   loadQuickAccessService,
   loadRemoteAgentService,
   loadSearchService,
+  loadStatusBarService,
   loadStorageService,
   loadTaskService,
   loadTerminalService,
   loadTextmateService,
   loadThemeService,
+  loadTitleBarService,
   loadViewsService,
   loadWorkbenchService,
-  type ServiceExport,
-  type ServiceNames,
 } from './service-loaders'
+import { constructOptions } from './setup.common'
 
 const LanguagePaths: Record<ComputeLanguageKind, string> = {
   JSON: 'json',
@@ -103,20 +116,20 @@ class CodeEnvironmentImpl implements CodeEnvironment {
 
   constructor(
     public readonly context: UiContext,
-    config: VscodeApiConfig,
+    config: Omit<VscodeApiConfig, 'workspaceConfig' | 'envOptions'>,
     opt: CodeOptions,
   ) {
-    this._config = config
+    this._config = { ...config }
     this._services = config.serviceOverrides ?? {}
     this.logger = new ConsoleLogger(opt.logLevel ?? LogLevel.Info)
   }
 
-  private _getWorker(label: string) {
+  private _getWorker(moduleId: string, label: string) {
     const workerFactory = this._workerLoaders[label]
     if (workerFactory != null) {
       return workerFactory()
     }
-    throw new Error(`Worker ${label} not found`)
+    throw new Error(`Unimplemented worker ${label} (${moduleId})`)
   }
 
   private _addWorker(label: string, factory: () => Worker) {
@@ -173,16 +186,12 @@ class CodeEnvironmentImpl implements CodeEnvironment {
     }
   }
 
-  public async addServices(name: ServiceNames, loader: () => Promise<any>, ...args: any[]) {
+  public async loadServices<T extends AllServiceNames>(name: T, loader: () => Promise<any>, ...args: ParametersOf<T>) {
     const serviceExports = await loader()
-    const { ...namedExports } = serviceExports
+    // remove "default" in service exports.
+    const { default: _default, ...namedExports } = serviceExports
     this._serviceExports.set(name, namedExports)
     mergeServices(this._services, serviceExports.default(...(args ?? [])))
-  }
-
-  public updateUserConfiguration(config: Record<string, any>) {
-    //  TODO: check this.
-    this._services.updateUserConfiguration?.(JSON.stringify(config))
   }
 
   /**
@@ -218,15 +227,6 @@ class CodeEnvironmentImpl implements CodeEnvironment {
       {},
       configDefaults,
     )
-  }
-
-  private _defaultOpenEditorStub(
-    modelRef: IReference<any>,
-    options: IEditorOptions | undefined,
-    sideBySide?: boolean,
-  ): Promise<ICodeEditor | undefined> {
-    console.log('Received open editor call with parameters: ', modelRef, options, sideBySide)
-    return Promise.resolve(undefined)
   }
 
   private _checkServiceConsistency(userServices?: monaco.editor.IEditorOverrideServices) {
@@ -286,6 +286,7 @@ class CodeEnvironmentImpl implements CodeEnvironment {
     }
     await Promise.all(allPromises)
   }
+
   private async _prepareClientConfig(
     id: string,
     kind: ComputeLanguageKind | string | undefined,
@@ -381,12 +382,242 @@ class CodeEnvironmentImpl implements CodeEnvironment {
     }
   }
 
+  // TODO: check this.
+  private _currentEditor: any
+  private _openNewCodeEditor(
+    modelRef: IReference<IResolvedTextEditorModel>,
+    options: IEditorOptions | undefined,
+    sideBySide?: boolean,
+  ): Promise<ICodeEditor | undefined> {
+    if (this._currentEditor != null) {
+      this._currentEditor.dispose()
+      this._currentEditor = null
+    }
+    const container = document.createElement('div')
+    container.style.position = 'fixed'
+    container.style.backgroundColor = 'rgba(0, 0, 0, 0.5)'
+    container.style.top = container.style.bottom = container.style.left = container.style.right = '0'
+    container.style.cursor = 'pointer'
+
+    const editorElem = document.createElement('div')
+    editorElem.style.position = 'absolute'
+    editorElem.style.top = editorElem.style.bottom = editorElem.style.left = editorElem.style.right = '0'
+    editorElem.style.margin = 'auto'
+    editorElem.style.width = '80%'
+    editorElem.style.height = '80%'
+
+    container.appendChild(editorElem)
+
+    document.body.appendChild(container)
+    try {
+      const editor = monaco.editor.create(editorElem, {
+        model: modelRef.object.textEditorModel,
+        readOnly: true,
+        automaticLayout: true,
+      })
+
+      this._currentEditor = {
+        dispose: () => {
+          editor.dispose()
+          modelRef.dispose()
+          document.body.removeChild(container)
+          this._currentEditor = null
+        },
+        modelRef,
+        editor,
+      }
+
+      editor.onDidBlurEditorWidget(() => {
+        this._currentEditor?.dispose()
+      })
+      container.addEventListener('mousedown', event => {
+        if (event.target !== container) {
+          return
+        }
+
+        this._currentEditor?.dispose()
+      })
+      return Promise.resolve(editor)
+    } catch (error) {
+      document.body.removeChild(container)
+      this._currentEditor = null
+      throw error
+    }
+  }
+
+  public getService<T>(identifier: ServiceIdentifier<T>): Promise<T> {
+    return getService(identifier)
+  }
+  // registerExtension(manifest: IExtensionManifest, extHostKind: ExtensionHostKind.LocalProcess, params?: RegisterExtensionParams): RegisterLocalProcessExtensionResult;
+  // registerExtension(manifest: IExtensionManifest, extHostKind: ExtensionHostKind.LocalWebWorker, params?: RegisterExtensionParams): RegisterLocalExtensionResult;
+  // registerExtension(manifest: IExtensionManifest, extHostKind: ExtensionHostKind.Remote, params?: RegisterRemoteExtensionParams): RegisterRemoteExtensionResult;
+  // registerExtension(manifest: IExtensionManifest, extHostKind?: ExtensionHostKind, params?: RegisterExtensionParams): RegisterExtensionResult;
+  public registerExtension(
+    manifest: IExtensionManifest,
+    params?: RegisterExtensionParams,
+  ): RegisterLocalProcessExtensionResult {
+    return registerExtension(manifest, ExtensionHostKind.LocalProcess, params)
+  }
+
+  private async _setupFiles() {
+    const workspaceFile = monaco.Uri.file('/workspace.code-workspace')
+    const {
+      createIndexedDBProviders,
+      registerFileSystemOverlay,
+      RegisteredMemoryFile,
+      RegisteredFileSystemProvider,
+      RegisteredReadOnlyFile,
+    } = this.getServiceUtilities('files')
+    const userDataProvider = await createIndexedDBProviders()
+
+    const fileSystemProvider = new RegisteredFileSystemProvider(false)
+    fileSystemProvider.registerFile(
+      new RegisteredMemoryFile(
+        vscode.Uri.file('/workspace/test.js'),
+        `// import anotherfile
+let variable = 1
+function inc () {
+  variable++
+}
+
+while (variable < 5000) {
+  inc()
+  console.log('Hello world', variable);
+}`,
+      ),
+    )
+
+    const content = new TextEncoder().encode('This is a readonly static file')
+    fileSystemProvider.registerFile(
+      new RegisteredReadOnlyFile(vscode.Uri.file('/workspace/test_readonly.js'), async () => content, content.length),
+    )
+
+    fileSystemProvider.registerFile(
+      new RegisteredMemoryFile(
+        vscode.Uri.file('/workspace/jsconfig.json'),
+        `{
+  "compilerOptions": {
+    "target": "es2020",
+    "module": "esnext",
+    "lib": [
+      "es2021",
+      "DOM"
+    ]
+  }
+}`,
+      ),
+    )
+
+    fileSystemProvider.registerFile(
+      new RegisteredMemoryFile(
+        vscode.Uri.file('/workspace/index.html'),
+        `
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>monaco-vscode-api demo</title>
+    <link rel="stylesheet" href="test.css">
+  </head>
+  <body>
+    <style type="text/css">
+      h1 {
+        color: DeepSkyBlue;
+      }
+    </style>
+
+    <h1>Hello, world!</h1>
+  </body>
+</html>`,
+      ),
+    )
+
+    fileSystemProvider.registerFile(
+      new RegisteredMemoryFile(
+        vscode.Uri.file('/workspace/test.md'),
+        `
+***Hello World***
+
+Math block:
+$$
+\\displaystyle
+\\left( \\sum_{k=1}^n a_k b_k \\right)^2
+\\leq
+\\left( \\sum_{k=1}^n a_k^2 \\right)
+\\left( \\sum_{k=1}^n b_k^2 \\right)
+$$
+
+# Easy Math
+
+2 + 2 = 4 // this test will pass
+2 + 2 = 5 // this test will fail
+
+# Harder Math
+
+230230 + 5819123 = 6049353
+`,
+      ),
+    )
+
+    fileSystemProvider.registerFile(
+      new RegisteredMemoryFile(
+        vscode.Uri.file('/workspace/test.customeditor'),
+        `
+Custom Editor!`,
+      ),
+    )
+
+    fileSystemProvider.registerFile(
+      new RegisteredMemoryFile(
+        vscode.Uri.file('/workspace/test.css'),
+        `
+h1 {
+  color: DeepSkyBlue;
+}`,
+      ),
+    )
+
+    // Use a workspace file to be able to add another folder later (for the "Attach filesystem" button)
+    fileSystemProvider.registerFile(
+      new RegisteredMemoryFile(
+        workspaceFile,
+        JSON.stringify(
+          {
+            folders: [
+              {
+                path: '/workspace',
+              },
+            ],
+          } as IStoredWorkspace,
+          null,
+          2,
+        ),
+      ),
+    )
+
+    fileSystemProvider.registerFile(
+      new RegisteredMemoryFile(
+        monaco.Uri.file('/workspace/.vscode/extensions.json'),
+        JSON.stringify(
+          {
+            recommendations: ['vscodevim.vim'],
+          },
+          null,
+          2,
+        ),
+      ),
+    )
+
+    registerFileSystemOverlay(1, fileSystemProvider)
+  }
+
   /* eslint-enabled @typescript-eslint/naming-convention */
   public async init(progress?: (progress: WorkerProgress) => void) {
     // use get worker as a signal that the env is initialized
     if (window.MonacoEnvironment?.getWorker) return
-
-    // await this._loadLocales()
+    // load locals
+    // TODO: Some parts of VSCode are already initialized, make sure the language pack is loaded before anything else or some translations will be missing
+    await this._loadLocales()
     progress?.({ progress: 0.1, message: '本地化加载完成' })
 
     this._addWorker(
@@ -400,89 +631,253 @@ class CodeEnvironmentImpl implements CodeEnvironment {
           type: 'module',
         }),
     )
-
+    // OutputLinkDetectionWorker: () =>
+    //   new Worker(new URL('@codingame/monaco-vscode-output-service-override/worker', import.meta.url), { type: 'module' }),
+    // LanguageDetectionWorker: () =>
+    //   new Worker(new URL('@codingame/monaco-vscode-language-detection-worker-service-override/worker', import.meta.url), {
+    //     type: 'module',
+    //   }),
+    // NotebookEditorWorker: () =>
+    //   new Worker(new URL('@codingame/monaco-vscode-notebook-service-override/worker', import.meta.url), {
+    //     type: 'module',
+    //   }),
+    // LocalFileSearchWorker: () =>
+    //   new Worker(new URL('@codingame/monaco-vscode-search-service-override/worker', import.meta.url), { type: 'module' }),
     // the following services are included by default, but need loaded manually
+    window.MonacoEnvironment = {
+      getWorker: (moduleId, labelId) => this._getWorker(moduleId, labelId),
+    }
 
-    await this.addServices('configuration', loadConfigurationService)
-    await this.addServices('host', loadHostService)
-    await this.addServices('theme', loadThemeService)
-    await this.addServices('keybindings', loadKeybindingsService)
-    await this.addServices('storage', loadStorageService)
-    await this.addServices('lifecycle', loadLifecycleService)
+    await this.loadServices('configuration', loadConfigurationService)
+    const { updateUserConfiguration } = this.getServiceUtilities('configuration')
 
-    await this.addServices('extensions', loadExtensionsService)
-    await this.addServices('files', loadFilesService)
-    await this.addServices('quickaccess', loadQuickAccessService)
+    await this.loadServices('host', loadHostService)
+    await this.loadServices('theme', loadThemeService)
+    await this.loadServices('keybindings', loadKeybindingsService)
+    await this.loadServices('storage', loadStorageService, {
+      fallbackOverride: {
+        'workbench.activity.showAccounts': false,
+      },
+    })
+    await this.loadServices('lifecycle', loadLifecycleService)
 
-    await this.addServices('languages', loadLanguagesService)
-    await this.addServices('textmate', loadTextmateService)
-    await this.addServices('model', loadModelService)
-    await this.addServices('log', loadLogService)
-    await this.addServices('dialog', loadDialogService)
-    await this.addServices('preferences', loadPreferencesService)
-    await this.addServices('remoteAgent', loadRemoteAgentService)
-    await this.addServices('notebook', loadNotebookService)
-    await this.addServices('terminal', loadTerminalService)
-    await this.addServices('search', loadSearchService)
-    await this.addServices('task', loadTaskService)
-    await this.addServices('outline', loadOutlineService)
-    await this.addServices('debug', loadDebugService)
+    await this.loadServices('extensions', loadExtensionsService)
+    await this.loadServices('files', loadFilesService)
+
+    await this.loadServices('languages', loadLanguagesService)
+    await this.loadServices('textmate', loadTextmateService)
+    await this.loadServices('model', loadModelService)
+    await this.loadServices('log', loadLogService)
+    await this.loadServices('dialog', loadDialogService)
+    await this.loadServices('preferences', loadPreferencesService)
+    await this.loadServices('remoteAgent', loadRemoteAgentService, { scanRemoteExtensions: true })
+    await this.loadServices('notebook', loadNotebookService)
+    await this.loadServices('terminal', loadTerminalService, new TerminalBackend())
+    await this.loadServices('search', loadSearchService)
+    await this.loadServices('task', loadTaskService)
+    await this.loadServices('outline', loadOutlineService)
+    await this.loadServices('debug', loadDebugService)
+    await this.loadServices('banner', loadBannerService)
+    await this.loadServices('statusBar', loadStatusBarService)
+    await this.loadServices('titleBar', loadTitleBarService)
+    //   getBannerServiceOverride(),
+    // ...getStatusBarServiceOverride(),
+    // ...getTitleBarServiceOverride(),
+    await this.loadServices('localization', loadLocalizationService, {
+      clearLocale() {
+        const url = new URL(window.location.href)
+        url.searchParams.delete('locale')
+        window.history.pushState(null, '', url.toString())
+        return Promise.resolve()
+      },
+      setLocale(id: any) {
+        const url = new URL(window.location.href)
+        url.searchParams.set('locale', id)
+        window.history.pushState(null, '', url.toString())
+        return Promise.resolve()
+      },
+      availableLanguages: [
+        { locale: 'en', languageName: 'English' },
+        { locale: 'zh-hans', languageName: 'Chinese (Simplified)' },
+      ],
+    })
     // await this.addServices('scm', loadScmService)
     // await this.addServices('chat', loadChatService)
 
     const vc = this._config.viewsConfig
     const vt = vc?.viewServiceType
     if (vt === 'ViewsService') {
-      await this.addServices('views', loadViewsService)
+      await this.loadServices('views', loadViewsService, this._openNewCodeEditor.bind(this))
     } else if (vt === 'WorkspaceService') {
-      await this.addServices('workbench', loadWorkbenchService)
+      await this.loadServices('workbench', loadWorkbenchService)
     } else {
-      await this.addServices('editor', loadEditorService)
+      await this.loadServices('editor', loadEditorService, this._openNewCodeEditor.bind(this))
     }
+
+    const { isEditorPartVisible } = this.getServiceUtilities('views')
+    await this.loadServices('quickaccess', loadQuickAccessService, {
+      isKeybindingConfigurationVisible: isEditorPartVisible,
+      shouldUseGlobalPicker: (_, isStandalone) => !isStandalone && isEditorPartVisible(),
+    })
 
     this._config.serviceOverrides = this._services
     progress?.({ progress: 0.4, message: '服务加载完成' })
 
-    if (this._config.workspaceConfig === undefined) {
-      this._config.workspaceConfig = {
-        workspaceProvider: {
-          trusted: true,
-          workspace: {
-            workspaceUri: vscode.Uri.file('/workspace.code-workspace'),
-          },
-          open: () => {
-            // TODO: check this.
-            window.open(window.location.href)
-            return Promise.resolve(true)
-          },
-        },
-      }
+    this._config.workspaceConfig = constructOptions
+    this._config.envOptions = {
+      // Otherwise, VSCode detect it as the first open workspace folder
+      // which make the search result extension fail as it's not able to know what was detected by VSCode
+      // TODO check this.
+      // userHome: vscode.Uri.file('/')
     }
     this.enableSemanticHighlighting()
 
+    await this._setupFiles()
+    const sorted = Object.keys(this._config.serviceOverrides).sort((a, b) => a.localeCompare(b))
     const success = await initServices(this._config, {
-      // htmlContainer: htmlContainer,
+      htmlContainer: document.body,
       caller: `platform`,
       performServiceConsistencyChecks: this._checkServiceConsistency.bind(this),
       logger: this.logger,
     })
     if (!success) throw new Error('Initialize services failed.')
+
+    setUnexpectedErrorHandler(e => {
+      console.info('Unexpected error', e)
+    })
+
     progress?.({ progress: 0.2, message: '服务加载完成' })
     // progress?.(80, '服务初始化完成')
 
     // initialize extensions.
     await this._initExtensions()
 
+    await this._testSetup(document.body)
     progress?.({ progress: 0.3, message: '插件初始化完成' })
 
     // // start language client.
     // await Promise.allSettled(Array.from(this._languageClients.values()).map(lsc => lsc.start()))
 
     // progress?.(95, '语言服务加载完成')
+  }
 
-    window.MonacoEnvironment = {
-      getWorker: (_, label) => this._getWorker(label),
-    }
+  private async _testSetup(root: HTMLElement) {
+    //     const container = document.createElement('div')
+    //     container.id = 'app'
+    //     container.innerHTML = `
+    // <div id="workbench-container">
+    // <div id="titleBar"></div>
+    // <div id="banner"></div>
+    // <div id="workbench-top">
+    //   <div style="display: flex; flex: none; border: 1px solid var(--vscode-editorWidget-border)">
+    //     <div id="activityBar"></div>
+    //     <div id="sidebar" style="width: 400px"></div>
+    //     <div id="auxiliaryBar-left" style="max-width: 300px"></div>
+    //   </div>
+    //   <div style="flex: 1; min-width: 0">
+    //     <h1>Editor</h1>
+    //     <div id="editors"></div>
+
+    //     <button id="toggleHTMLFileSystemProvider">Toggle HTML filesystem provider</button>
+    //     <button id="customEditorPanel">Open custom editor panel</button>
+    //     <button id="clearStorage">Clear user data</button>
+    //     <button id="resetLayout">Reset layout</button>
+    //     <button id="toggleFullWorkbench">Switch to full workbench mode</button>
+    //     <br />
+    //     <button id="togglePanel">Toggle Panel</button>
+    //     <button id="toggleAuxiliary">Toggle Secondary Panel</button>
+    //   </div>
+    //   <div style="display: flex; flex: none; border: 1px solid var(--vscode-editorWidget-border);">
+    //     <div id="sidebar-right" style="max-width: 500px"></div>
+    //     <div id="activityBar-right"></div>
+    //     <div id="auxiliaryBar" style="max-width: 300px"></div>
+    //   </div>
+    // </div>
+
+    // <div id="panel"></div>
+
+    // <div id="statusBar"></div>
+    // </div>
+
+    // <h1>Settings<span id="settings-dirty">●</span></h1>
+    // <button id="settingsui">Open settings UI</button>
+    // <button id="resetsettings">Reset settings</button>
+    // <div id="settings-editor" class="standalone-editor"></div>
+    // <h1>Keybindings<span id="keybindings-dirty">●</span></h1>
+    // <button id="keybindingsui">Open keybindings UI</button>
+    // <button id="resetkeybindings">Reset keybindings</button>
+    // <div id="keybindings-editor" class="standalone-editor"></div>`
+
+    //     root.append(container)
+
+    //     for (const config of [
+    //       { part: Parts.TITLEBAR_PART, element: '#titleBar' },
+    //       { part: Parts.BANNER_PART, element: '#banner' },
+    //       {
+    //         part: Parts.SIDEBAR_PART,
+    //         get element() {
+    //           return getSideBarPosition() === vscode.Position.LEFT ? '#sidebar' : '#sidebar-right'
+    //         },
+    //         onDidElementChange: onDidChangeSideBarPosition,
+    //       },
+    //       {
+    //         part: Parts.ACTIVITYBAR_PART,
+    //         get element() {
+    //           return getSideBarPosition() === vscode.Position.LEFT ? '#activityBar' : '#activityBar-right'
+    //         },
+    //         onDidElementChange: onDidChangeSideBarPosition,
+    //       },
+    //       { part: Parts.PANEL_PART, element: '#panel' },
+    //       { part: Parts.EDITOR_PART, element: '#editors' },
+    //       { part: Parts.STATUSBAR_PART, element: '#statusBar' },
+    //       {
+    //         part: Parts.AUXILIARYBAR_PART,
+    //         get element() {
+    //           return getSideBarPosition() === vscode.Position.LEFT ? '#auxiliaryBar' : '#auxiliaryBar-left'
+    //         },
+    //         onDidElementChange: onDidChangeSideBarPosition,
+    //       },
+    //     ]) {
+    //       attachPart(config.part, document.querySelector<HTMLDivElement>(config.element)!)
+
+    //       config.onDidElementChange?.(() => {
+    //         attachPart(config.part, document.querySelector<HTMLDivElement>(config.element)!)
+    //       })
+
+    //       if (!isPartVisibile(config.part)) {
+    //         document.querySelector<HTMLDivElement>(config.element)!.style.display = 'none'
+    //       }
+
+    //       onPartVisibilityChange(config.part, visible => {
+    //         document.querySelector<HTMLDivElement>(config.element)!.style.display = visible ? 'block' : 'none'
+    //       })
+    //     }
+
+    //     const layoutService = await getService(IWorkbenchLayoutService)
+    //     document.querySelector('#togglePanel')!.addEventListener('click', async () => {
+    //       layoutService.setPartHidden(layoutService.isVisible(Parts.PANEL_PART, window), Parts.PANEL_PART)
+    //     })
+
+    //     document.querySelector('#toggleAuxiliary')!.addEventListener('click', async () => {
+    //       layoutService.setPartHidden(layoutService.isVisible(Parts.AUXILIARYBAR_PART, window), Parts.AUXILIARYBAR_PART)
+    //     })
+
+    // export async function clearStorage(): Promise<void> {
+    //   await userDataProvider.reset()
+    //   await ((await getService(IStorageService)) as BrowserStorageService).clear()
+    // }
+
+    await registerExtension(
+      {
+        name: 'demo',
+        publisher: 'codingame',
+        version: '1.0.0',
+        engines: {
+          vscode: '*',
+        },
+      },
+      ExtensionHostKind.LocalProcess,
+    ).setAsDefaultApi()
   }
 
   public async dispose() {

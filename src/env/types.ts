@@ -9,8 +9,13 @@ import type {
   IStandaloneCodeEditor,
   IStandaloneEditorConstructionOptions,
 } from '@codingame/monaco-vscode-api/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
-import type { IExtensionManifest } from '@codingame/monaco-vscode-api/extensions'
+import type {
+  IExtensionManifest,
+  RegisterExtensionParams,
+  RegisterLocalProcessExtensionResult,
+} from '@codingame/monaco-vscode-api/extensions'
 import type { Logger } from 'monaco-languageclient/tools'
+import type { ServiceIdentifier } from '@codingame/monaco-vscode-api/vscode/vs/platform/instantiation/common/instantiation'
 import type { ServiceExport, ServiceNames } from './service-loaders'
 
 export enum LogLevel {
@@ -102,6 +107,8 @@ export interface CodeEnvironment {
   stopLanguageClient(id: string): Promise<void>
   createEditor(id: string, html: HTMLElement, opt: CodeEditorOptions): Promise<CodeEditor>
   getServiceUtilities<T extends ServiceNames>(name: T): ServiceExport<T>
+  getService<T>(identifier: ServiceIdentifier<T>): Promise<T>
+  registerExtension(manifest: IExtensionManifest, params?: RegisterExtensionParams): RegisterLocalProcessExtensionResult
   disposeEditor(id: string): Promise<void>
   dispose(): Promise<void>
 }
