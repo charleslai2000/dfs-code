@@ -11,6 +11,7 @@ import type {
 } from '@codingame/monaco-vscode-api/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 import type { IExtensionManifest } from '@codingame/monaco-vscode-api/extensions'
 import type { Logger } from 'monaco-languageclient/tools'
+import type { ServiceExport, ServiceNames } from './service-loaders'
 
 export enum LogLevel {
   /* eslint-disable @typescript-eslint/naming-convention */
@@ -88,6 +89,8 @@ export type ComputeLanguageKind =
   /** C语言 */
   | 'C'
 
+type AwaitedReturnType<T extends (...args: any) => any> = Awaited<ReturnType<T>>
+
 export interface CodeEnvironment {
   context: UiContext
   init(progress?: (progress: WorkerProgress) => void): Promise<void>
@@ -98,6 +101,7 @@ export interface CodeEnvironment {
   ): Promise<void>
   stopLanguageClient(id: string): Promise<void>
   createEditor(id: string, html: HTMLElement, opt: CodeEditorOptions): Promise<CodeEditor>
+  getServiceUtilities<T extends ServiceNames>(name: T): ServiceExport<T>
   disposeEditor(id: string): Promise<void>
   dispose(): Promise<void>
 }

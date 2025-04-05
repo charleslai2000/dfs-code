@@ -27,6 +27,35 @@ import type {
 import type { LanguageClientConfig } from './lsp-client'
 import { LanguageClient } from './lsp-client'
 import { CodeEditorImpl } from './editor'
+import {
+  loadConfigurationService,
+  loadDebugService,
+  loadDialogService,
+  loadEditorService,
+  loadExtensionsService,
+  loadFilesService,
+  loadHostService,
+  loadKeybindingsService,
+  loadLanguagesService,
+  loadLifecycleService,
+  loadLogService,
+  loadModelService,
+  loadNotebookService,
+  loadOutlineService,
+  loadPreferencesService,
+  loadQuickAccessService,
+  loadRemoteAgentService,
+  loadSearchService,
+  loadStorageService,
+  loadTaskService,
+  loadTerminalService,
+  loadTextmateService,
+  loadThemeService,
+  loadViewsService,
+  loadWorkbenchService,
+  type ServiceExport,
+  type ServiceNames,
+} from './service-loaders'
 
 const LanguagePaths: Record<ComputeLanguageKind, string> = {
   JSON: 'json',
@@ -61,6 +90,7 @@ class CodeEnvironmentImpl implements CodeEnvironment {
   private _config: VscodeApiConfig
   private _workerLoaders: Partial<Record<string, WorkerLoader>> = {}
   private _services: monaco.editor.IEditorOverrideServices
+  private _serviceExports = new Map<string, Readonly<Record<string, any>>>()
 
   private _extensions: ExtensionConfig[] = []
   private _installedExtensions = new Map<string, RegisterExtensionResult>()
@@ -143,12 +173,15 @@ class CodeEnvironmentImpl implements CodeEnvironment {
     }
   }
 
-  public async addServices(loader: () => Promise<any>, ...args: any[]) {
-    const override = (await loader()).default
-    mergeServices(this._services, override(...(args ?? [])))
+  public async addServices(name: ServiceNames, loader: () => Promise<any>, ...args: any[]) {
+    const serviceExports = await loader()
+    const { ...namedExports } = serviceExports
+    this._serviceExports.set(name, namedExports)
+    mergeServices(this._services, serviceExports.default(...(args ?? [])))
   }
 
   public updateUserConfiguration(config: Record<string, any>) {
+    //  TODO: check this.
     this._services.updateUserConfiguration?.(JSON.stringify(config))
   }
 
@@ -254,6 +287,7 @@ class CodeEnvironmentImpl implements CodeEnvironment {
     await Promise.all(allPromises)
   }
   private async _prepareClientConfig(
+    id: string,
     kind: ComputeLanguageKind | string | undefined,
     options?: Partial<LanguageClientOptions>,
   ) {
@@ -261,12 +295,15 @@ class CodeEnvironmentImpl implements CodeEnvironment {
     if (!kind) lang = 'JSON'
     else if (kind in LanguagePaths) lang = kind as ComputeLanguageKind
     else lang = LanguageKinds[kind] ?? ('JSON' as ComputeLanguageKind)
+    const url = new URL(`${this.context.host.serviceEndpoints.language}/${LanguagePaths[lang]}`)
+    url.searchParams.set('id', id)
+    url.searchParams.set('session', this.context.id)
     const config: LanguageClientConfig = {
       clientOptions: { ...options },
       connection: {
         options: {
           $type: 'WebSocketUrl',
-          url: `${this.context.host.serviceEndpoints.language}/${LanguagePaths[lang]}`,
+          url: url.toString(),
           startOptions: {
             onCall: () => {
               console.log('Connected to socket.')
@@ -297,10 +334,20 @@ class CodeEnvironmentImpl implements CodeEnvironment {
     return config
   }
 
+  private _getServiceExports(name: string): any {
+    const serviceExports = this._serviceExports.get(name)
+    if (!serviceExports) throw new Error(`${name} service not loaded.`)
+    return serviceExports
+  }
+
+  public getServiceUtilities<T extends ServiceNames>(name: T): ServiceExport<T> {
+    return this._getServiceExports(name)
+  }
+
   public async startLanguageClient(id: string, kind?: ComputeLanguageKind | string, options?: LanguageClientOptions) {
     let client = this._languageClients.get(id)
     if (!client) {
-      const config = await this._prepareClientConfig(kind, options)
+      const config = await this._prepareClientConfig(id, kind, options)
       client = new LanguageClient(this, id, config)
       this._languageClients.set(id, client)
     }
@@ -354,54 +401,45 @@ class CodeEnvironmentImpl implements CodeEnvironment {
         }),
     )
 
-    // the following services are included by default
-    // await this.addServices(() => import('@codingame/monaco-vscode-host-service-override'))
-    // await this.addServices(() => import('@codingame/monaco-vscode-quickaccess-service-override'))
-    // await this.addServices(() => import('@codingame/monaco-vscode-extensions-service-override'))
-    await this.addServices(() => import('@codingame/monaco-vscode-configuration-service-override'))
-    // Enable language support and trigger onLanguage events
-    await this.addServices(() => import('@codingame/monaco-vscode-languages-service-override'))
-    await this.addServices(() => import('@codingame/monaco-vscode-textmate-service-override'))
-    await this.addServices(() => import('@codingame/monaco-vscode-theme-service-override'))
-    await this.addServices(() => import('@codingame/monaco-vscode-keybindings-service-override'))
-    await this.addServices(() => import('@codingame/monaco-vscode-files-service-override'))
-    await this.addServices(() => import('@codingame/monaco-vscode-storage-service-override'))
-    await this.addServices(() => import('@codingame/monaco-vscode-lifecycle-service-override'))
-    // enables vscode notifications you usually find in the bottom right corner
-    // @codingame/monaco-vscode-notifications-service-override
-    await this.addServices(() => import('@codingame/monaco-vscode-dialogs-service-override'))
-    // creates and takes care of model references.
-    await this.addServices(() => import('@codingame/monaco-vscode-model-service-override'))
-    await this.addServices(() => import('@codingame/monaco-vscode-preferences-service-override'))
+    // the following services are included by default, but need loaded manually
 
-    await this.addServices(() => import('@codingame/monaco-vscode-remote-agent-service-override'))
-    // await this.addServices(() => import('@codingame/monaco-vscode-chat-service-override'))
-    await this.addServices(() => import('@codingame/monaco-vscode-notebook-service-override'))
+    await this.addServices('configuration', loadConfigurationService)
+    await this.addServices('host', loadHostService)
+    await this.addServices('theme', loadThemeService)
+    await this.addServices('keybindings', loadKeybindingsService)
+    await this.addServices('storage', loadStorageService)
+    await this.addServices('lifecycle', loadLifecycleService)
 
-    // when views and workbench services are used:
-    await this.addServices(() => import('@codingame/monaco-vscode-debug-service-override'))
-    await this.addServices(() => import('@codingame/monaco-vscode-terminal-service-override'))
-    await this.addServices(() => import('@codingame/monaco-vscode-search-service-override'))
-    // TODO: this depends chat-service
-    // await this.addServices(() => import('@codingame/monaco-vscode-scm-service-override'))
-    // task management
-    await this.addServices(() => import('@codingame/monaco-vscode-task-service-override'))
-    await this.addServices(() => import('@codingame/monaco-vscode-outline-service-override'))
+    await this.addServices('extensions', loadExtensionsService)
+    await this.addServices('files', loadFilesService)
+    await this.addServices('quickaccess', loadQuickAccessService)
 
-    this.context.log.i('4 services loaded.')
+    await this.addServices('languages', loadLanguagesService)
+    await this.addServices('textmate', loadTextmateService)
+    await this.addServices('model', loadModelService)
+    await this.addServices('log', loadLogService)
+    await this.addServices('dialog', loadDialogService)
+    await this.addServices('preferences', loadPreferencesService)
+    await this.addServices('remoteAgent', loadRemoteAgentService)
+    await this.addServices('notebook', loadNotebookService)
+    await this.addServices('terminal', loadTerminalService)
+    await this.addServices('search', loadSearchService)
+    await this.addServices('task', loadTaskService)
+    await this.addServices('outline', loadOutlineService)
+    await this.addServices('debug', loadDebugService)
+    // await this.addServices('scm', loadScmService)
+    // await this.addServices('chat', loadChatService)
 
     const vc = this._config.viewsConfig
     const vt = vc?.viewServiceType
     if (vt === 'ViewsService') {
-      await this.addServices(
-        () => import('@codingame/monaco-vscode-views-service-override'),
-        vc?.openEditorFunc ?? this._defaultOpenEditorStub.bind(this),
-      )
+      await this.addServices('views', loadViewsService)
     } else if (vt === 'WorkspaceService') {
-      await this.addServices(() => import('@codingame/monaco-vscode-workbench-service-override'))
+      await this.addServices('workbench', loadWorkbenchService)
     } else {
-      await this.addServices(() => import('@codingame/monaco-vscode-editor-service-override'))
+      await this.addServices('editor', loadEditorService)
     }
+
     this._config.serviceOverrides = this._services
     progress?.({ progress: 0.4, message: '服务加载完成' })
 
