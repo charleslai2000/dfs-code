@@ -7,7 +7,7 @@ export const constructOptions: IWorkbenchConstructionOptions = {
   enableWorkspaceTrust: true,
   // connectionToken,
   windowIndicator: {
-    label: '通用智能大数据平台',
+    label: '通用智能军事大数据平台',
     tooltip: '',
     command: '',
   },
@@ -21,45 +21,14 @@ export const constructOptions: IWorkbenchConstructionOptions = {
     workspace: {
       workspaceUri: monaco.Uri.file('/workspace.code-workspace'),
     },
-    // remotePath == null
-    // ? {
-    //     workspaceUri: workspaceFile,
-    //   }
-    // : {
-    //     folderUri: monaco.Uri.from({
-    //       scheme: 'vscode-remote',
-    //       path: remotePath,
-    //       authority: remoteAuthority,
-    //     }),
-    //   },
   },
   developmentOptions: {
     logLevel: LogLevel.Info, // Default value
   },
   configurationDefaults: {
-    'window.title': 'Monaco-Vscode-Api${separator}${dirty}${activeEditorShort}',
+    'window.title': '通用智能军事大数据平台',
   },
   defaultLayout: {
-    // editors: useHtmlFileSystemProvider
-    //   ? undefined
-    //   : [
-    //       {
-    //         uri: monaco.Uri.file('/workspace/test.js'),
-    //         viewColumn: 1,
-    //       },
-    //       {
-    //         uri: monaco.Uri.file('/workspace/test.md'),
-    //         viewColumn: 2,
-    //       },
-    //     ],
-    // layout: useHtmlFileSystemProvider
-    //   ? undefined
-    //   : {
-    //       editors: {
-    //         orientation: 0,
-    //         groups: [{ size: 1 }, { size: 1 }],
-    //       },
-    //     },
     views: [
       {
         id: 'custom-view',

@@ -22,13 +22,14 @@ import type { LanguageClientOptions } from 'vscode-languageclient/browser'
 import { type IResolvedTextEditorModel } from '@codingame/monaco-vscode-views-service-override'
 import type { ICodeEditor } from '@codingame/monaco-vscode-api/vscode/vs/editor/browser/editorBrowser'
 import type { ServiceIdentifier } from '@codingame/monaco-vscode-api/vscode/vs/platform/instantiation/common/instantiation'
-import type { IStoredWorkspace } from '@codingame/monaco-vscode-configuration-service-override'
+import { type IStoredWorkspace } from '@codingame/monaco-vscode-configuration-service-override'
+import { assert } from '@nexp/front-lib/utility'
 import { TerminalBackend } from '../features/terminal'
 import type {
+  CodeConfiguration,
   CodeEditor,
   CodeEditorOptions,
   CodeEnvironment,
-  CodeOptions,
   ComputeLanguageKind,
   ExtensionConfig,
   WorkerLoader,
@@ -69,6 +70,7 @@ import {
   loadWorkbenchService,
 } from './service-loaders'
 import { constructOptions } from './setup.common'
+import userConfig from './configuration.json'
 
 const LanguagePaths: Record<ComputeLanguageKind, string> = {
   JSON: 'json',
@@ -116,12 +118,14 @@ class CodeEnvironmentImpl implements CodeEnvironment {
 
   constructor(
     public readonly context: UiContext,
-    config: Omit<VscodeApiConfig, 'workspaceConfig' | 'envOptions'>,
-    opt: CodeOptions,
+    config: CodeConfiguration,
   ) {
-    this._config = { ...config }
-    this._services = config.serviceOverrides ?? {}
-    this.logger = new ConsoleLogger(opt.logLevel ?? LogLevel.Info)
+    const { logLevel, ...rest } = config
+    this._config = { ...rest }
+    const userConfiguration = { ...userConfig, ...config.userConfiguration }
+    this._config.userConfiguration = { json: JSON.stringify(userConfiguration, undefined, 2) }
+    this._services = { ...config.serviceOverrides }
+    this.logger = new ConsoleLogger(logLevel ?? LogLevel.Info)
   }
 
   private _getWorker(moduleId: string, label: string) {
@@ -341,7 +345,7 @@ class CodeEnvironmentImpl implements CodeEnvironment {
     return serviceExports
   }
 
-  public getServiceUtilities<T extends ServiceNames>(name: T): ServiceExport<T> {
+  public getServiceApi<T extends ServiceNames>(name: T): ServiceExport<T> {
     return this._getServiceExports(name)
   }
 
@@ -467,7 +471,7 @@ class CodeEnvironmentImpl implements CodeEnvironment {
       RegisteredMemoryFile,
       RegisteredFileSystemProvider,
       RegisteredReadOnlyFile,
-    } = this.getServiceUtilities('files')
+    } = this.getServiceApi('files')
     const userDataProvider = await createIndexedDBProviders()
 
     const fileSystemProvider = new RegisteredFileSystemProvider(false)
@@ -619,7 +623,6 @@ h1 {
     // TODO: Some parts of VSCode are already initialized, make sure the language pack is loaded before anything else or some translations will be missing
     await this._loadLocales()
     progress?.({ progress: 0.1, message: '本地化加载完成' })
-
     this._addWorker(
       'TextEditorWorker',
       () => new Worker(new URL('monaco-editor/esm/vs/editor/editor.worker', import.meta.url), { type: 'module' }),
@@ -649,7 +652,6 @@ h1 {
     }
 
     await this.loadServices('configuration', loadConfigurationService)
-    const { updateUserConfiguration } = this.getServiceUtilities('configuration')
 
     await this.loadServices('host', loadHostService)
     await this.loadServices('theme', loadThemeService)
@@ -714,7 +716,7 @@ h1 {
       await this.loadServices('editor', loadEditorService, this._openNewCodeEditor.bind(this))
     }
 
-    const { isEditorPartVisible } = this.getServiceUtilities('views')
+    const { isEditorPartVisible } = this.getServiceApi('views')
     await this.loadServices('quickaccess', loadQuickAccessService, {
       isKeybindingConfigurationVisible: isEditorPartVisible,
       shouldUseGlobalPicker: (_, isStandalone) => !isStandalone && isEditorPartVisible(),
@@ -742,6 +744,8 @@ h1 {
     })
     if (!success) throw new Error('Initialize services failed.')
 
+    const { updateUserConfiguration } = this.getServiceApi('configuration')
+    if (this._config.userConfiguration?.json) await updateUserConfiguration(this._config.userConfiguration.json)
     setUnexpectedErrorHandler(e => {
       console.info('Unexpected error', e)
     })
@@ -761,113 +765,10 @@ h1 {
     // progress?.(95, '语言服务加载完成')
   }
 
+  private _api?: typeof vscode
   private async _testSetup(root: HTMLElement) {
-    //     const container = document.createElement('div')
-    //     container.id = 'app'
-    //     container.innerHTML = `
-    // <div id="workbench-container">
-    // <div id="titleBar"></div>
-    // <div id="banner"></div>
-    // <div id="workbench-top">
-    //   <div style="display: flex; flex: none; border: 1px solid var(--vscode-editorWidget-border)">
-    //     <div id="activityBar"></div>
-    //     <div id="sidebar" style="width: 400px"></div>
-    //     <div id="auxiliaryBar-left" style="max-width: 300px"></div>
-    //   </div>
-    //   <div style="flex: 1; min-width: 0">
-    //     <h1>Editor</h1>
-    //     <div id="editors"></div>
-
-    //     <button id="toggleHTMLFileSystemProvider">Toggle HTML filesystem provider</button>
-    //     <button id="customEditorPanel">Open custom editor panel</button>
-    //     <button id="clearStorage">Clear user data</button>
-    //     <button id="resetLayout">Reset layout</button>
-    //     <button id="toggleFullWorkbench">Switch to full workbench mode</button>
-    //     <br />
-    //     <button id="togglePanel">Toggle Panel</button>
-    //     <button id="toggleAuxiliary">Toggle Secondary Panel</button>
-    //   </div>
-    //   <div style="display: flex; flex: none; border: 1px solid var(--vscode-editorWidget-border);">
-    //     <div id="sidebar-right" style="max-width: 500px"></div>
-    //     <div id="activityBar-right"></div>
-    //     <div id="auxiliaryBar" style="max-width: 300px"></div>
-    //   </div>
-    // </div>
-
-    // <div id="panel"></div>
-
-    // <div id="statusBar"></div>
-    // </div>
-
-    // <h1>Settings<span id="settings-dirty">●</span></h1>
-    // <button id="settingsui">Open settings UI</button>
-    // <button id="resetsettings">Reset settings</button>
-    // <div id="settings-editor" class="standalone-editor"></div>
-    // <h1>Keybindings<span id="keybindings-dirty">●</span></h1>
-    // <button id="keybindingsui">Open keybindings UI</button>
-    // <button id="resetkeybindings">Reset keybindings</button>
-    // <div id="keybindings-editor" class="standalone-editor"></div>`
-
-    //     root.append(container)
-
-    //     for (const config of [
-    //       { part: Parts.TITLEBAR_PART, element: '#titleBar' },
-    //       { part: Parts.BANNER_PART, element: '#banner' },
-    //       {
-    //         part: Parts.SIDEBAR_PART,
-    //         get element() {
-    //           return getSideBarPosition() === vscode.Position.LEFT ? '#sidebar' : '#sidebar-right'
-    //         },
-    //         onDidElementChange: onDidChangeSideBarPosition,
-    //       },
-    //       {
-    //         part: Parts.ACTIVITYBAR_PART,
-    //         get element() {
-    //           return getSideBarPosition() === vscode.Position.LEFT ? '#activityBar' : '#activityBar-right'
-    //         },
-    //         onDidElementChange: onDidChangeSideBarPosition,
-    //       },
-    //       { part: Parts.PANEL_PART, element: '#panel' },
-    //       { part: Parts.EDITOR_PART, element: '#editors' },
-    //       { part: Parts.STATUSBAR_PART, element: '#statusBar' },
-    //       {
-    //         part: Parts.AUXILIARYBAR_PART,
-    //         get element() {
-    //           return getSideBarPosition() === vscode.Position.LEFT ? '#auxiliaryBar' : '#auxiliaryBar-left'
-    //         },
-    //         onDidElementChange: onDidChangeSideBarPosition,
-    //       },
-    //     ]) {
-    //       attachPart(config.part, document.querySelector<HTMLDivElement>(config.element)!)
-
-    //       config.onDidElementChange?.(() => {
-    //         attachPart(config.part, document.querySelector<HTMLDivElement>(config.element)!)
-    //       })
-
-    //       if (!isPartVisibile(config.part)) {
-    //         document.querySelector<HTMLDivElement>(config.element)!.style.display = 'none'
-    //       }
-
-    //       onPartVisibilityChange(config.part, visible => {
-    //         document.querySelector<HTMLDivElement>(config.element)!.style.display = visible ? 'block' : 'none'
-    //       })
-    //     }
-
-    //     const layoutService = await getService(IWorkbenchLayoutService)
-    //     document.querySelector('#togglePanel')!.addEventListener('click', async () => {
-    //       layoutService.setPartHidden(layoutService.isVisible(Parts.PANEL_PART, window), Parts.PANEL_PART)
-    //     })
-
-    //     document.querySelector('#toggleAuxiliary')!.addEventListener('click', async () => {
-    //       layoutService.setPartHidden(layoutService.isVisible(Parts.AUXILIARYBAR_PART, window), Parts.AUXILIARYBAR_PART)
-    //     })
-
-    // export async function clearStorage(): Promise<void> {
-    //   await userDataProvider.reset()
-    //   await ((await getService(IStorageService)) as BrowserStorageService).clear()
-    // }
-
-    await registerExtension(
+    // TODO: dispose
+    const { getApi, setAsDefaultApi } = registerExtension(
       {
         name: 'demo',
         publisher: 'codingame',
@@ -877,7 +778,15 @@ h1 {
         },
       },
       ExtensionHostKind.LocalProcess,
-    ).setAsDefaultApi()
+    )
+    this._api = await getApi()
+    await setAsDefaultApi()
+    // .setAsDefaultApi()
+  }
+
+  public get api() {
+    assert(this._api, 'API not initialized')
+    return this._api
   }
 
   public async dispose() {

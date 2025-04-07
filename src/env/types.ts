@@ -1,4 +1,5 @@
 import type EventEmitter from 'events'
+import type * as vscode from 'vscode'
 import type { ITextFileEditorModel } from '@codingame/monaco-vscode-api/monaco'
 import type { IReference } from '@codingame/monaco-vscode-api/vscode/vs/base/common/lifecycle'
 import type { ITextModel } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/model'
@@ -16,6 +17,8 @@ import type {
 } from '@codingame/monaco-vscode-api/extensions'
 import type { Logger } from 'monaco-languageclient/tools'
 import type { ServiceIdentifier } from '@codingame/monaco-vscode-api/vscode/vs/platform/instantiation/common/instantiation'
+import type { ViewsConfig } from 'monaco-languageclient/vscode/services'
+import type { IEditorOverrideServices } from '@codingame/monaco-vscode-api'
 import type { ServiceExport, ServiceNames } from './service-loaders'
 
 export enum LogLevel {
@@ -70,7 +73,11 @@ export interface LanguageClientError {
   error: Error | string
 }
 
-export interface CodeOptions {
+export interface CodeConfiguration {
+  loadThemes?: boolean
+  serviceOverrides?: IEditorOverrideServices
+  userConfiguration?: Record<string, any>
+  viewsConfig?: ViewsConfig
   logLevel?: LogLevel
 }
 
@@ -94,10 +101,9 @@ export type ComputeLanguageKind =
   /** C语言 */
   | 'C'
 
-type AwaitedReturnType<T extends (...args: any) => any> = Awaited<ReturnType<T>>
-
 export interface CodeEnvironment {
   context: UiContext
+  api: typeof vscode
   init(progress?: (progress: WorkerProgress) => void): Promise<void>
   startLanguageClient(
     id: string,
@@ -106,7 +112,7 @@ export interface CodeEnvironment {
   ): Promise<void>
   stopLanguageClient(id: string): Promise<void>
   createEditor(id: string, html: HTMLElement, opt: CodeEditorOptions): Promise<CodeEditor>
-  getServiceUtilities<T extends ServiceNames>(name: T): ServiceExport<T>
+  getServiceApi<T extends ServiceNames>(name: T): ServiceExport<T>
   getService<T>(identifier: ServiceIdentifier<T>): Promise<T>
   registerExtension(manifest: IExtensionManifest, params?: RegisterExtensionParams): RegisterLocalProcessExtensionResult
   disposeEditor(id: string): Promise<void>

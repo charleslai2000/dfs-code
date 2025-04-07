@@ -1,0 +1,39 @@
+{
+  "workbench.colorTheme": "Default Light+",
+  "workbench.iconTheme": "vs-seti",
+  "window.commandCenter": false,
+  "workbench.layoutControl.enabled": false,
+  "editor.autoClosingBrackets": "languageDefined",
+  "editor.autoClosingQuotes": "languageDefined",
+  "editor.scrollBeyondLastLine": true,
+  "editor.mouseWheelZoom": true,
+  "editor.wordBasedSuggestions": "off",
+  "editor.acceptSuggestionOnEnter": "on",
+  "editor.foldingHighlight": false,
+  "editor.semanticHighlighting.enabled": true,
+  "editor.bracketPairColorization.enabled": false,
+  "editor.fontFamily": "Inconsolata, Noto Sans SC Variable, Menlo, Monaco, Courier New, monospace",
+  "editor.fontSize": 16,
+  "editor.guides.bracketPairsHorizontal": "active",
+  "editor.wordWrapColumn": 120,
+  "editor.lightbulb.enabled": "On",
+  "editor.experimental.asyncTokenization": true,
+  "accessibility.signals.lineHasError": {
+    "sound": "on"
+  },
+  "accessibility.signals.onDebugBreak": {
+    "sound": "on"
+  },
+  "files.autoSave": "off",
+  "terminal.integrated.tabs.title": "${sequence}",
+  "terminal.integrated.inheritEnv": false,
+  "terminal.integrated.fontSize": 16,
+  "debug.toolBarLocation": "docked",
+  "debug.console.fontSize": 16,
+  "debug.console.fontFamily": "Inconsolata, Noto Sans SC Variable, Menlo, Monaco, Courier New, monospace",
+  "scm.inputFontSize": 16,
+  "markdown.preview.fontFamily": "Inconsolata, Noto Sans SC Variable, BlinkMacSystemFont, Segoe WPC, Segoe UI, system-ui, Droid Sans, sans-serif",
+  "markdown.preview.lineHeight": 1.2,
+  "markdown.preview.fontSize": 14,
+  "chat.editor.fontSize": 16
+}

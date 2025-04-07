@@ -6,6 +6,6 @@
     "outDir": "dist",
     "composite": true
   },
-  "include": ["src", "test", "schema"],
+  "include": ["src", "test", "schema", "src/**/*.json"],
   "exclude": ["dist", "build", "node_modules"]
 }

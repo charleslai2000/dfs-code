@@ -8,8 +8,11 @@
     "./env": {
       "import": "./src/env/index.ts"
     },
-    "./exports": {
-      "import": "./src/exports/index.ts"
+    "./monaco": {
+      "import": "./src/monaco.ts"
+    },
+    "./vscode": {
+      "import": "./src/vscode.ts"
     }
   },
   "scripts": {
@@ -111,6 +114,7 @@
     "@codingame/monaco-vscode-workspace-trust-service-override": "^15.0.3",
     "@nexp/common": "workspace:*",
     "@nexp/front-lib": "workspace:*",
+    "@types/vscode": "^1.98.0",
     "@vscode/vscode-languagedetection": "^1.0.22",
     "ansi-colors": "^4.1.3",
     "events": "^3.3.0",
