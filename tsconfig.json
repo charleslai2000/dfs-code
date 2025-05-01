@@ -7,5 +7,6 @@
     "composite": true
   },
   "include": ["src", "test", "schema", "src/**/*.json"],
-  "exclude": ["dist", "build", "node_modules"]
+  "exclude": ["dist", "build", "node_modules"],
+  "references": [{ "path": "../common/tsconfig.json" }, { "path": "../front-lib/tsconfig.json" }]
 }
