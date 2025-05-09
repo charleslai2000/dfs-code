@@ -625,7 +625,10 @@ h1 {
     progress?.({ progress: 0.1, message: '本地化加载完成' })
     this._addWorker(
       'TextEditorWorker',
-      () => new Worker(new URL('monaco-editor/esm/vs/editor/editor.worker', import.meta.url), { type: 'module' }),
+      () =>
+        new Worker(new URL('@codingame/monaco-vscode-editor-api/esm/vs/editor/editor.worker', import.meta.url), {
+          type: 'module',
+        }),
     )
     this._addWorker(
       'TextMateWorker',
@@ -800,6 +803,6 @@ h1 {
   }
 }
 
-export const createEnvironment = (context: UiContext, config: VscodeApiConfig, opt: CodeOptions) => {
-  return new CodeEnvironmentImpl(context, config, opt)
+export const createEnvironment = (context: UiContext, config: VscodeApiConfig) => {
+  return new CodeEnvironmentImpl(context, config)
 }
