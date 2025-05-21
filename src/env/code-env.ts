@@ -178,9 +178,9 @@ class CodeEnvironmentImpl implements CodeEnvironment {
       // tr: async () => {
       //     await import('@codingame/monaco-vscode-language-pack-tr');
       // },
-      'zh-hans': async () => {
-        await import('@codingame/monaco-vscode-language-pack-zh-hans')
-      },
+      // 'zh-hans': async () => {
+      //   await import('@codingame/monaco-vscode-language-pack-zh-hans')
+      // },
       // 'zh-hant': async () => {
       //     await import('@codingame/monaco-vscode-language-pack-zh-hant');
       // }
@@ -768,7 +768,7 @@ h1 {
     // progress?.(95, '语言服务加载完成')
   }
 
-  private _api?: typeof vscode
+  // private _api?: typeof vscode
   private async _testSetup(root: HTMLElement) {
     // TODO: dispose
     const { getApi, setAsDefaultApi } = registerExtension(
@@ -782,14 +782,18 @@ h1 {
       },
       ExtensionHostKind.LocalProcess,
     )
-    this._api = await getApi()
+
+    const globalEnv = window.MonacoEnvironment as any
+    globalEnv.__api = await getApi()
     await setAsDefaultApi()
     // .setAsDefaultApi()
   }
 
   public get api() {
-    assert(this._api, 'API not initialized')
-    return this._api
+    const globalEnv = window.MonacoEnvironment as any
+    const api = globalEnv.__api
+    assert(api, 'VSCode API not initialized')
+    return api
   }
 
   public async dispose() {
