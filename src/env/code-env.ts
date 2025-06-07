@@ -195,7 +195,7 @@ class CodeEnvironmentImpl implements CodeEnvironment {
     // remove "default" in service exports.
     const { default: _default, ...namedExports } = serviceExports
     this._serviceExports.set(name, namedExports)
-    mergeServices(this._services, serviceExports.default(...(args ?? [])))
+    mergeServices(this._services, _default(...(args ?? [])))
   }
 
   /**

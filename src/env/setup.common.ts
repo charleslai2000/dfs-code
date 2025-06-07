@@ -7,7 +7,7 @@ export const constructOptions: IWorkbenchConstructionOptions = {
   enableWorkspaceTrust: true,
   // connectionToken,
   windowIndicator: {
-    label: '通用智能军事大数据平台',
+    label: 'MIDAS数据智能平台',
     tooltip: '',
     command: '',
   },
@@ -26,7 +26,7 @@ export const constructOptions: IWorkbenchConstructionOptions = {
     logLevel: LogLevel.Info, // Default value
   },
   configurationDefaults: {
-    'window.title': '通用智能军事大数据平台',
+    'window.title': 'MIDAS数据智能平台',
   },
   defaultLayout: {
     views: [
