@@ -13,18 +13,15 @@ export const CodeEnvLoader: ServiceLoader<CodeEnvLoaderOptions> = async (context
   progress?.({ progress: 0.5, message: '编码系统加载完成' })
   // await import('@codingame/monaco-vscode-json-default-extension')
   // await import('@codingame/monaco-vscode-python-default-extension')
-  const instance = createEnvironment(
-    context,
-    {
-      viewsConfig: {
-        viewServiceType: 'ViewsService',
-      },
-      userConfiguration: options?.userConfiguration ?? {
-        json: JSON.stringify({}),
-      },
+  const instance = createEnvironment(context, {
+    viewsConfig: {
+      viewServiceType: 'ViewsService',
     },
-    { logLevel: context.debug ? 1 : !context.development ? 4 : 2 },
-  )
+    userConfiguration: options?.userConfiguration ?? {
+      json: JSON.stringify({}),
+    },
+    logLevel: context.debug ? 1 : !context.development ? 4 : 2,
+  })
   const subQuota = 1 - 0.5
   await instance.init(prog => progress?.({ ...prog, progress: (prog.progress ?? 0) * subQuota }))
   context.setProperty<CodeEnvironmentProp>({ name: 'service.code', environment: instance })

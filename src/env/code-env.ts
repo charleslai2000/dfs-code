@@ -807,6 +807,6 @@ h1 {
   }
 }
 
-export const createEnvironment = (context: UiContext, config: VscodeApiConfig) => {
+export const createEnvironment = (context: UiContext, config: CodeConfiguration) => {
   return new CodeEnvironmentImpl(context, config)
 }
